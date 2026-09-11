@@ -1,4 +1,4 @@
-# Hallucination Mitigation in Long-Document summarization
+# GroundSum: A Grounded Extraction–Abstraction Framework for Factually Consistent Long-Document Summarization
 
 ## Abstract
 
