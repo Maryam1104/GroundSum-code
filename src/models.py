@@ -46,7 +46,7 @@ from transformers import (
     EarlyStoppingCallback,
     EvalPrediction,
     LongformerModel,
-    LongformerTokenizer,
+    LongformerTokenizerFast,   
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
     T5ForConditionalGeneration,
@@ -281,12 +281,14 @@ class LongformerWithCrossAttention(nn.Module):
     Architecture:
     * A pre-trained ``allenai/longformer-base-4096`` backbone encodes the
       full input sequence (up to 4096 tokens) via sliding-window attention.
-    * A single learnable ``global_query`` parameter acts as a compressed
-      global context vector.
-    * Multi-head cross-attention is applied between the per-token hidden
-      states (queries) and the global context (keys / values), allowing
-      every token to be re-scored in light of the document-level summary
-      signal.
+    * A single learnable ``global_query`` parameter serves as a global
+      query for aggregating document-level information.
+    * Multi-head cross-attention uses the global query to attend over
+      the Longformer token representations (keys and values), producing
+      a document-level context vector.
+    * The resulting context vector is added to each token representation
+      through a residual connection, preserving token-specific information
+      for subsequent classification.
     * A linear classifier maps each attended token representation to a
       binary label (0 = non-summary, 1 = summary-relevant).
 
@@ -349,20 +351,24 @@ class LongformerWithCrossAttention(nn.Module):
         hidden_states: torch.Tensor = outputs.last_hidden_state  # (B, L, H)
 
         batch_size = hidden_states.size(0)
-        # Expand the global query to the current batch size: (B, 1, H)
-        global_context = self.global_query.unsqueeze(0).expand(batch_size, -1, -1)
 
-        # MultiheadAttention expects (L, B, H) inputs.
-        query = hidden_states.transpose(0, 1)       # (L, B, H)
-        key   = global_context.transpose(0, 1)      # (1, B, H)
-        value = global_context.transpose(0, 1)      # (1, B, H)
-
-        cross_attn_output, _ = self.cross_attention(
-            query=query, key=key, value=value
+        global_query = self.global_query.unsqueeze(0).expand(
+            batch_size, -1, -1
         )
-        cross_attended_states = cross_attn_output.transpose(0, 1)  # (B, L, H)
-
-        logits: torch.Tensor = self.classifier(cross_attended_states)  # (B, L, num_labels)
+        
+        cross_attn_output, _ = self.cross_attention(
+            query=global_query.transpose(0, 1),
+            key=hidden_states.transpose(0, 1),
+            value=hidden_states.transpose(0, 1),
+            key_padding_mask=(attention_mask == 0),
+            need_weights=False,
+        )
+        
+        global_context = cross_attn_output.transpose(0, 1)
+        
+        cross_attended_states = hidden_states + global_context
+        
+        logits = self.classifier(cross_attended_states)
 
         loss: torch.Tensor | None = None
         if labels is not None:
@@ -447,7 +453,7 @@ class SummaryGenerator:
     ----------
     model : LongformerWithCrossAttention
         Trained Longformer model.
-    tokenizer : LongformerTokenizer
+    tokenizer : LongformerTokenizerFast
         Corresponding tokenizer.
     save_path : str | None
         If provided, generated summaries are written to
@@ -459,7 +465,7 @@ class SummaryGenerator:
     def __init__(
         self,
         model: LongformerWithCrossAttention,
-        tokenizer: LongformerTokenizer,
+        tokenizer: LongformerTokenizerFast,
         save_path: str | None = None,
         device: str = "cuda",
     ) -> None:
@@ -486,13 +492,16 @@ class SummaryGenerator:
             Space-joined extractive summary of the top-:data:`SUMMARY_LENGTH`
             sentences.
         """
-        inputs = self.tokenizer(
+        encoded = self.tokenizer(
             text,
             padding="max_length",
             truncation=True,
             max_length=4096,
+            return_offsets_mapping=True,
             return_tensors="pt",
-        ).to(self.device)
+        )
+        offsets = encoded.pop("offset_mapping")[0].cpu().numpy()
+        inputs = encoded.to(self.device)
 
         self.model.eval()
         with torch.no_grad():
@@ -509,16 +518,50 @@ class SummaryGenerator:
 
         sents = sent_tokenize(text)
         sent_scores: list[float] = []
-        pos = 0
-        for sent in sents:
-            token_ids = self.tokenizer(sent, add_special_tokens=False)["input_ids"]
-            span_len = len(token_ids)
-            sent_scores.append(float(np.mean(token_scores[pos : pos + span_len])))
-            pos += span_len
+        valid_indices: list[int] = []
 
-        top_indices = np.argsort(sent_scores)[-SUMMARY_LENGTH:][::-1]
-        summary = " ".join([sents[i] for i in sorted(top_indices)])
+        cursor = 0
 
+        for i, sent in enumerate(sents):
+            # Locate the sentence in the original document.
+            start = text.find(sent, cursor)
+        
+            if start == -1:
+                continue
+        
+            end = start + len(sent)
+            cursor = end
+        
+            # Find tokens whose character spans overlap this sentence.
+            token_mask = (
+                (offsets[:, 0] < end)
+                & (offsets[:, 1] > start)
+                & (offsets[:, 1] > offsets[:, 0])
+            )
+        
+            token_positions = np.flatnonzero(token_mask)
+        
+            # Skip sentences outside the tokenized 4096-token window.
+            if token_positions.size == 0:
+                continue
+        
+            score = float(np.mean(token_scores[token_positions]))
+        
+            sent_scores.append(score)
+            valid_indices.append(i)
+        
+        # Select the highest-scoring valid sentences.
+        if sent_scores:
+            top_positions = np.argsort(sent_scores)[-SUMMARY_LENGTH:]
+        
+            selected_indices = sorted(
+                valid_indices[j] for j in top_positions
+            )
+        
+            summary = " ".join(sents[i] for i in selected_indices)
+        else:
+            summary = ""
+      
         if self.save_path and summary_id:
             os.makedirs(self.save_path, exist_ok=True)
             file_path = os.path.join(self.save_path, f"{summary_id}.txt")
@@ -594,7 +637,7 @@ class LongformerExtractor:
     ) -> None:
         self.dataset_name = dataset_name
         self.drive_path = drive_path
-        self.tokenizer: LongformerTokenizer = LongformerTokenizer.from_pretrained(
+        self.tokenizer = LongformerTokenizerFast.from_pretrained(
             self.LONGFORMER_BASE
         )
         self.model_path = os.path.join(model_dir, dataset_name)
@@ -666,6 +709,57 @@ class LongformerExtractor:
         columnar = {key: [ex.get(key, "") for ex in records] for key in records[0]}
         return Dataset.from_dict(columnar)
 
+    
+    @staticmethod
+    def _create_token_labels(
+        doc_text: str,
+        oracle_summary: str,
+        offsets: list,
+        attention_mask: list,
+    ) -> list[int]:
+        """Create token labels using actual sentence character spans."""
+
+        sentences = sent_tokenize(doc_text)
+        oracle_sents = {
+            sent.strip() for sent in sent_tokenize(oracle_summary)
+        }
+
+        # Ignore padding and special tokens.
+        labels = [-100] * len(offsets)
+
+        for i, ((tok_start, tok_end), mask) in enumerate(
+            zip(offsets, attention_mask)
+        ):
+            if mask == 1 and tok_end > tok_start:
+                labels[i] = 0
+
+        # Find sentence spans in the original document.
+        cursor = 0
+
+        for sent in sentences:
+            start = doc_text.find(sent, cursor)
+
+            if start == -1:
+                continue
+
+            end = start + len(sent)
+            cursor = end
+
+            if sent.strip() not in oracle_sents:
+                continue
+
+            # Mark all valid tokens overlapping an oracle sentence.
+            for i, (tok_start, tok_end) in enumerate(offsets):
+                if (
+                    labels[i] != -100
+                    and tok_start < end
+                    and tok_end > start
+                ):
+                    labels[i] = 1
+
+        return labels
+
+
     def _create_labels_validation(
         self, example: dict[str, Any], max_length: int = 4096
     ) -> dict[str, Any]:
@@ -689,19 +783,30 @@ class LongformerExtractor:
             if isinstance(example["text"], list)
             else example.get("text") or ""
         )
+        raw_oracle = example.get("oracle_summary", "")
+        ref_summary = (
+            " ".join(raw_oracle)
+            if isinstance(raw_oracle, list)
+            else raw_oracle or ""
+        )
+      
         tokenized = self.tokenizer(
             input_text,
             truncation=True,
             max_length=max_length,
             padding="max_length",
+            return_offsets_mapping=True,
         )
-        tokenized["labels"] = [0] * len(tokenized["input_ids"])
+        tokenized["labels"] = self._create_token_labels(
+            doc_text=input_text,
+            oracle_summary=ref_summary,
+            offsets=tokenized["offset_mapping"],
+            attention_mask=tokenized["attention_mask"],
+        )
 
-        raw_oracle = example.get("oracle_summary", "")
-        ref_summary = (
-            " ".join(raw_oracle) if isinstance(raw_oracle, list) else raw_oracle or ""
-        )
-        tokenized["ref_summary"] = ref_summary
+        # Remove offset mappings before passing data to Trainer.
+        tokenized.pop("offset_mapping")
+
         tokenized["labels"]         = np.asarray(tokenized["labels"],         dtype=np.int64)
         tokenized["input_ids"]      = np.asarray(tokenized["input_ids"],      dtype=np.int64)
         tokenized["attention_mask"] = np.asarray(tokenized["attention_mask"], dtype=np.int64)
@@ -736,6 +841,10 @@ class LongformerExtractor:
         raw_dataset["train"] = raw_dataset["train"].filter(
             lambda ex: ex.get("indices") is not None
         )
+        raw_dataset["val"] = raw_dataset["val"].filter(
+            lambda ex: bool(ex.get("oracle_summary"))
+        )
+
         raw_dataset["train"] = (
             raw_dataset["train"]
             .shuffle(seed=42)
@@ -757,22 +866,8 @@ class LongformerExtractor:
                 " ".join(t) if isinstance(t, list) else t or ""
                 for t in examples["text"]
             ]
-            summaries_raw = examples.get("oracle_summary", [])
-            summaries_joined: list[str] = []
-            valid_indices: list[int] = []
-
-            for i, summ in enumerate(summaries_raw):
-                if summ:
-                    summaries_joined.append(
-                        " ".join(summ) if isinstance(summ, list) else summ
-                    )
-                    valid_indices.append(i)
-
-            if not valid_indices:
-                print("Skipping batch — all oracle summaries are missing.")
-                return {}
-
-            texts_joined = [texts_joined[i] for i in valid_indices]
+            summaries_raw = examples["oracle_summary"]
+            summaries_joined= [" ".join(summ) if isinstance(summ, list) else summ or ""for summ in summaries_raw]
 
             try:
                 tokenized = self.tokenizer(
@@ -780,35 +875,33 @@ class LongformerExtractor:
                     truncation=True,
                     max_length=4096,
                     padding="max_length",
+                    return_offsets_mapping=True,
                 )
             except Exception as exc:
                 print(f"Tokeniser error: {exc}")
-                batch_size = len(texts_joined)
-                return {
-                    "input_ids":      [[] for _ in range(batch_size)],
-                    "attention_mask": [[] for _ in range(batch_size)],
-                    "labels":         [[] for _ in range(batch_size)],
-                }
-
+                raise
+                
             labels: list[list[int]] = []
             for doc_text, oracle_summary, token_ids in zip(
-                texts_joined, summaries_joined, tokenized["input_ids"]
+                texts_joined, 
+                summaries_joined, 
+                tokenized["offset_mapping"],
+                tokenized["attention_mask"],
             ):
-                sentences = sent_tokenize(doc_text)
-                oracle_sents = set(sent_tokenize(oracle_summary))
-                sentence_length = len(token_ids) // max(len(sentences), 1)
-                label = [0] * len(token_ids)
-
-                for sent_idx, sent in enumerate(sentences):
-                    start_idx = sent_idx * sentence_length
-                    if sent.strip() in oracle_sents and start_idx < len(label):
-                        label[start_idx] = 1
+                label = self._create_token_labels(
+                doc_text=doc_text,
+                oracle_summary=oracle_summary,
+                offsets=offsets,
+                attention_mask=mask,
+            )
 
                 labels.append(label)
-
-            tokenized["labels"]         = np.asarray(labels,                               dtype=np.int64)
-            tokenized["input_ids"]      = np.asarray(tokenized["input_ids"],               dtype=np.int64)
-            tokenized["attention_mask"] = np.asarray(tokenized["attention_mask"],           dtype=np.int64)
+              
+            tokenized.pop("offset_mapping")
+  
+            tokenized["labels"]         = np.asarray(labels, dtype=np.int64)
+            tokenized["input_ids"]      = np.asarray(tokenized["input_ids"], dtype=np.int64)
+            tokenized["attention_mask"] = np.asarray(tokenized["attention_mask"], dtype=np.int64)
             return tokenized
 
         remove_cols_train = [
@@ -910,7 +1003,6 @@ class LongformerExtractor:
             save_total_limit=2,
             report_to="none",
             remove_unused_columns=False,
-            resume_from_checkpoint=True,
         )
 
         data_collator = DataCollatorForTokenClassification(
@@ -1162,12 +1254,17 @@ def load_and_split_extractive_preds(
     ds = load_dataset("json", data_files=input_file, split="train")
     ds = ds.select(range(min(n_total, len(ds)))).shuffle(seed=seed)
 
+    if len(ds) < 2001:
+    raise ValueError(
+        "At least 2001 examples are required for the "
+        "configured train/validation/test split."
+    )
+
     return DatasetDict({
         "train":      ds.select(range(1500)),
         "validation": ds.select(range(1500, 2000)),
         "test":       ds.select(range(2000, min(2500, len(ds)))),
     })
-
 
 def preprocess_for_t5(
     datasets: DatasetDict,
