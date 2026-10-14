@@ -10,10 +10,15 @@ their source documents, a phenomenon known as *hallucination*. This repository
 implements a complete, reproducible research pipeline that directly attacks
 this problem through a two-stage hybrid framework:
 
-1. **Extractive grounding**: a Longformer-based encoder augmented with a
-   learnable cross-attention head (and a DistilBERT sentence-level classifier
-   as a comparative baseline) selects the most salient sentences from a
-   document, producing a factually grounded extractive summary.
+1. **Extractive grounding**: a pretrained Longformer encoder processes
+   scientific documents of up to 4,096 tokens. A learnable global query
+   attends over the Longformer token representations through multi-head
+   cross-attention to aggregate document-level context. This context is
+   incorporated into the token representations through a residual
+   connection, followed by binary token-relevance classification.
+   Token-level predictions are aggregated into sentence importance
+   scores to select salient sentences for an extractive summary.
+   A DistilBERT sentence-level classifier serves as a comparative baseline.
 2. **Controlled abstractive refinement**: a four-stage GPT self-critique loop
    (fact extraction → guided rewrite → self-critique → automated revision)
    rewrites each extractive chunk into fluent academic prose while being
@@ -29,7 +34,7 @@ coverage.
 ## Project Highlights
 
 - Novel hybrid extractive–abstractive summarization framework
-- Custom Longformer with Cross-Attention sentence extraction
+- Longformer-based extraction with learnable global-query cross-attention, residual context fusion, and token-level relevance classification
 - GPT-4o-mini self-critique rewriting pipeline for hallucination mitigation
 - DistilBERT and T5 baselines for comparison
 - Evaluated on ArXiv and PubMed scientific summarization benchmarks
