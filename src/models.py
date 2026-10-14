@@ -1089,7 +1089,11 @@ def build_sentence_dataset(
                 })
     
         return Dataset.from_list(examples)
-
+      
+    return DatasetDict({
+        split: _flatten(ds_dict[split])
+        for split in ds_dict
+    })
 
 def get_distilbert_trainer(
     tokenized_ds: DatasetDict,
