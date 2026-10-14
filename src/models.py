@@ -1207,6 +1207,7 @@ def train_distilbert_baselines(
     arxiv_trainer = get_distilbert_trainer(
         arxiv_tok, os.path.join(output_dir, "arxiv"), tokenizer
     )
+    os.makedirs(arxiv_trainer.args.output_dir, exist_ok=True)
     last_ckpt = get_last_checkpoint(arxiv_trainer.args.output_dir)
     if last_ckpt:
         print(f"⏩  Resuming ArXiv DistilBERT training from {last_ckpt}")
@@ -1216,6 +1217,7 @@ def train_distilbert_baselines(
     pubmed_trainer = get_distilbert_trainer(
         pubmed_tok, os.path.join(output_dir, "pubmed"), tokenizer
     )
+    os.makedirs(arxiv_trainer.args.output_dir, exist_ok=True)
     last_ckpt = get_last_checkpoint(pubmed_trainer.args.output_dir)
     if last_ckpt:
         print(f"⏩  Resuming PubMed DistilBERT training from {last_ckpt}")
@@ -1367,7 +1369,7 @@ def run_t5_abstractive_pipeline(
 
     set_seed(seed)
 
-    extractive_dir = os.path.join(drive_path, "extractive")
+    extractive_dir = os.path.join(drive_path, "baselines", "distilbert")
     input_file = os.path.join(extractive_dir, dataset_name, "test_predictions.jsonl")
     output_dir = os.path.join(drive_path, output_subdir, dataset_name)
     os.makedirs(output_dir, exist_ok=True)
@@ -1423,7 +1425,6 @@ def run_t5_abstractive_pipeline(
         eval_dataset=tokenized["validation"],
         tokenizer=tokenizer,
         compute_metrics=compute_bertscore_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=1)],
     )
 
     trainer.train()
