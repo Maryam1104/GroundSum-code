@@ -373,7 +373,7 @@ def stage_baseline_distilbert(
             ds = ds.shuffle(seed=42).select(range(min(size, len(ds))))
             ds_dict[split] = ds
         dd = DatasetDict(ds_dict)
-        return dd.rename_column("oracle_summary", "labels").remove_columns("summary")
+        return dd.rename_column("oracle_summary", "labels")
 
     arxiv_dir  = os.path.join(paths["dataset"], "arxiv_enriched")
     pubmed_dir = os.path.join(paths["dataset"], "pubmed_enriched")
