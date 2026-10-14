@@ -32,7 +32,14 @@ import numpy as np
 import openai
 import torch
 import torch.nn as nn
-from datasets import DatasetDict, Dataset, Features, Sequence, Value
+from datasets import (
+    DatasetDict,
+    Dataset,
+    Features,
+    Sequence,
+    Value,
+    load_dataset,
+)
 from nltk.tokenize import sent_tokenize
 from openai import APIError, OpenAIError, RateLimitError
 from openai import APITimeoutError as OpenAITimeout
@@ -73,7 +80,6 @@ from src.utils import (
     safe_batch_decode,
     save_json,
     save_jsonl,
-    load_dataset
 )
 
 nltk.download("punkt", quiet=True)
@@ -587,6 +593,8 @@ def get_latest_checkpoint(checkpoint_path: str) -> str | None:
     str | None
         Path to the latest checkpoint directory, or ``None`` if none exist.
     """
+    if not os.path.isdir(checkpoint_path):
+        return None
     checkpoint_dirs = [
         os.path.join(checkpoint_path, name)
         for name in os.listdir(checkpoint_path)
@@ -991,7 +999,7 @@ class LongformerExtractor:
             load_best_model_at_end=True,
             metric_for_best_model="rouge1_f",
             greater_is_better=True,
-            fp16=True,
+            fp16=torch.cuda.is_available(),
             save_total_limit=2,
             report_to="none",
             remove_unused_columns=False,
@@ -1068,16 +1076,27 @@ def build_sentence_dataset(
     """
     def _flatten(split_ds: Dataset) -> Dataset:
         examples: list[dict[str, Any]] = []
+    
         for doc in split_ds:
-            sents = nltk.sent_tokenize(doc["text"])
-            gold = set(nltk.sent_tokenize(doc["labels"]))
+            text = doc["text"]
+            sents = (
+                text if isinstance(text, list)
+                else nltk.sent_tokenize(text)
+            )
+    
+            oracle = doc.get("oracle_summary", doc.get("labels", []))
+            gold = set(
+                oracle if isinstance(oracle, list)
+                else nltk.sent_tokenize(oracle)
+            )
+    
             for sent in sents:
-                examples.append({"sentence": sent, "label": int(sent in gold)})
+                examples.append({
+                    "sentence": sent,
+                    "label": int(sent in gold),
+                })
+    
         return Dataset.from_list(examples)
-
-    return DatasetDict(
-        {split: _flatten(ds_dict[split]) for split in ds_dict}
-    )
 
 
 def get_distilbert_trainer(
