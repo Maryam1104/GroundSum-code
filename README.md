@@ -209,8 +209,8 @@ The enriched datasets are saved under `dataset/arxiv_enriched/` and `dataset/pub
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/hallucination_mitigation_nlp.git
-cd hallucination_mitigation_nlp
+git clone https://github.com/Maryam1104/GroundSum-code.git
+cd GroundSum-code
 ```
 
 Replace `<your-username>` with the actual GitHub username.
