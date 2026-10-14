@@ -213,8 +213,6 @@ git clone https://github.com/Maryam1104/GroundSum-code.git
 cd GroundSum-code
 ```
 
-Replace `<your-username>` with the actual GitHub username.
-
 ### 2. Create and activate a virtual environment
 
 Create the environment:
