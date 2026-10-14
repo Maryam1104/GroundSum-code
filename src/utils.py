@@ -52,8 +52,7 @@ CHUNK_TOKEN_SIZE: int = 250
 MAX_FILES: int = 2_500
 
 # Datasets targeted by the pipeline (can be extended to include "pubmed")
-DATASETS: list[str] = ["arxiv_enriched"]
-
+DATASETS: list[str] = ["arxiv_enriched", "pubmed_enriched"]
 
 # 2.  Path helpers
 
