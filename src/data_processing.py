@@ -115,15 +115,24 @@ def load_custom_dataset(dataset_name: str, dataset_path: str) -> DatasetDict:
         Dictionary with keys ``"train"``, ``"validation"``, ``"test"``.
     """
     base = os.path.join(dataset_path, dataset_name)
-    return load_dataset(
-        "json",
-        data_files={
-            "train":      os.path.join(base, "train.jsonl"),
-            "validation": os.path.join(base, "val.jsonl"),
-            "test":       os.path.join(base, "test.jsonl"),
-        },
-        features=DATASET_FEATURES,
-    )
+  
+    return DatasetDict({
+        "train": load_dataset(
+            "json",
+            data_files=os.path.join(base, "train.jsonl"),
+            split="train",
+        ),
+        "validation": load_dataset(
+            "json",
+            data_files=os.path.join(base, "val.jsonl"),
+            split="train",
+        ),
+        "test": load_dataset(
+            "json",
+            data_files=os.path.join(base, "test.jsonl"),
+            split="train",
+        ),
+    })
 
 
 # 4. TF-IDF oracle extraction
