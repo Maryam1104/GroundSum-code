@@ -34,6 +34,7 @@ from src.utils import (
     GPT_TEMPERATURE_BASELINE,
     load_jsonl,
     save_json,
+    save_jsonl,
 )
 
 # 1.  ROUGE evaluation (extractive summaries, Pipeline 1 / DistilBERT)
@@ -140,7 +141,12 @@ def evaluate_model(
         ROUGE scores DataFrame (see :func:`evaluate_summaries`).
     """
     dataset = load_and_preprocess_test_dataset(dataset_name, drive_path)
-    dataset = dataset.shuffle(seed=42).select(range(min(test_size, len(dataset))))
+    if save_summaries:
+        dataset = dataset.select(range(min(test_size, len(dataset))))
+    else:
+        dataset = dataset.shuffle(seed=42).select(
+            range(min(test_size, len(dataset)))
+        )
 
     print("Generating summaries …")
     generated: list[str] = []
@@ -216,26 +222,42 @@ def evaluate_extractive_distilbert(
         ["rouge1", "rouge2", "rougeL"], use_stemmer=True
     )
     model = trainer.model.to(trainer.args.device)
+    model.eval()
     preds_list: list[str] = []
     refs_list:  list[str] = []
 
     for doc in tqdm(raw_ds[split], desc=f"DistilBERT eval [{split}]"):
-        sents = sent_tokenize(doc["text"])
+        text = doc["text"]
+        sents = (
+            text if isinstance(text, list)
+            else sent_tokenize(text)
+        )
+    
+        if not sents:
+            continue
+    
         enc = tokenizer(
             sents,
             padding=True,
             truncation=True,
             return_tensors="pt",
         ).to(model.device)
-
+    
         with torch.no_grad():
             logits = model(**enc).logits
-            probs  = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()
-
+            probs = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()
+    
         top_idxs = np.argsort(probs)[-k:]
-        pred = " ".join([sents[i] for i in sorted(top_idxs)])
+        pred = " ".join(sents[i] for i in sorted(top_idxs))
+    
+        oracle = doc.get("oracle_summary", doc.get("labels", ""))
+        reference = (
+            " ".join(oracle) if isinstance(oracle, list)
+            else oracle
+        )
+    
         preds_list.append(pred)
-        refs_list.append(doc["labels"])
+        refs_list.append(reference)
 
     scores = rouge_metric
     results: list[dict[str, float]] = []
@@ -401,7 +423,7 @@ def load_reference_summaries(path: str) -> dict[int, str]:
     """
     refs: dict[int, str] = {}
     with open(path, "r", encoding="utf-8") as fh:
-        for idx, line in enumerate(fh):
+        for idx, line in enumerate(fh, start=1):
             record = json.loads(line)
             refs[idx] = " ".join(record["summary"])
     return refs
