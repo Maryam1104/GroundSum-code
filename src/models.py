@@ -580,26 +580,18 @@ class SummaryGenerator:
 
 def get_latest_checkpoint(checkpoint_path: str) -> str | None:
     """
-    Scan *checkpoint_path* for directories named ``checkpoint-<step>`` and
-    return the path of the latest one by global step number.
-
-    Parameters
-    ----------
-    checkpoint_path : str
-        Directory to search.
-
-    Returns
-    -------
-    str | None
-        Path to the latest checkpoint directory, or ``None`` if none exist.
+    Return the latest checkpoint directory by global step.
     """
     if not os.path.isdir(checkpoint_path):
         return None
+      
     checkpoint_dirs = [
         os.path.join(checkpoint_path, name)
         for name in os.listdir(checkpoint_path)
         if name.startswith("checkpoint-")
+        and os.path.isdir(os.path.join(checkpoint_path, name))
     ]
+
     if not checkpoint_dirs:
         return None
 
