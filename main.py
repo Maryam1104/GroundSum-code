@@ -67,7 +67,7 @@ from src.evaluation import (
     evaluate_model,
     load_and_preprocess_test_dataset,
 )
-
+from transformers import set_seed
 
 # 1.  CLI argument parsing
 
@@ -448,21 +448,17 @@ def stage_baseline_t5(
 
 def stage_rewrite(
     paths: dict[str, str],
+    datasets: list[str],
     logger: logging.Logger,
 ) -> None:
-    """
-    Run the GPT-powered self-critique abstractive rewrite on all extractive
-    summaries produced by the Longformer pipeline.
-
-    Parameters
-    ----------
-    paths : dict[str, str]
-    logger : logging.Logger
-    """
+   """Run GPT-based rewriting for selected datasets."""
+    
     logger.info("Stage: rewrite")
-    run_rewrite_pipeline(paths["base"])
+    run_rewrite_pipeline(
+        paths["base"],
+        datasets=datasets,
+    )
     logger.info("Stage: rewrite complete.")
-
 
 def stage_evaluate(
     paths: dict[str, str],
@@ -532,7 +528,8 @@ def main() -> None:
     9. ``inspect``            — JSONL structural sanity checks
     """
     args = parse_args()
-
+    set_seed(args.seed)
+    
     #  Resolve stages 
     all_stages = [
         "download",
@@ -584,7 +581,7 @@ def main() -> None:
         stage_baseline_t5(paths, active_datasets, args, logger)
 
     if "rewrite" in stages:
-        stage_rewrite(paths, logger)
+        stage_rewrite(paths, active_datasets, logger)
 
     if "evaluate" in stages:
         stage_evaluate(paths, active_datasets, logger)
