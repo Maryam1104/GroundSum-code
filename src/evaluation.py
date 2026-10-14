@@ -225,6 +225,7 @@ def evaluate_extractive_distilbert(
     model.eval()
     preds_list: list[str] = []
     refs_list:  list[str] = []
+    gold_refs_list: list[str] = []
 
     for doc in tqdm(raw_ds[split], desc=f"DistilBERT eval [{split}]"):
         text = doc["text"]
@@ -258,6 +259,9 @@ def evaluate_extractive_distilbert(
     
         preds_list.append(pred)
         refs_list.append(reference)
+        gold = doc.get("summary", reference)
+        gold_reference = " ".join(gold) if isinstance(gold, list) else gold
+        gold_refs_list.append(gold_reference)
 
     scores = rouge_metric
     results: list[dict[str, float]] = []
@@ -277,7 +281,7 @@ def evaluate_extractive_distilbert(
 
     os.makedirs(output_dir, exist_ok=True)
     save_jsonl(
-        [{"prediction": p, "reference": r} for p, r in zip(preds_list, refs_list)],
+        [{"prediction": p, "reference": r} for p, r in zip(preds_list, gold_refs_list)],
         os.path.join(output_dir, f"{split}_predictions.jsonl"),
     )
     save_json(avg_scores, os.path.join(output_dir, f"{split}_rouge.json"))
@@ -367,9 +371,11 @@ def compute_factcc_via_gpt(
             {
                 "role": "system",
                 "content": (
-                    "You are a fact-consistency checker. First list reasons why "
-                    "the premise may support or not support the hypothesis, then "
-                    "output JSON."
+                    "You are a factual-consistency checker. "
+                    "Return only a valid JSON object with the keys "
+                    "'label' (SUPPORTS or NOT_SUPPORTS) and "
+                    "'score' (a number between 0 and 1). "
+                    "Do not include explanations or markdown."
                 ),
             },
             {
