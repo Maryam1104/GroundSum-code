@@ -882,7 +882,7 @@ class LongformerExtractor:
                 raise
                 
             labels: list[list[int]] = []
-            for doc_text, oracle_summary, token_ids in zip(
+            for doc_text, oracle_summary, offsets, mask in zip(
                 texts_joined, 
                 summaries_joined, 
                 tokenized["offset_mapping"],
@@ -893,7 +893,7 @@ class LongformerExtractor:
                 oracle_summary=oracle_summary,
                 offsets=offsets,
                 attention_mask=mask,
-            )
+                )
 
                 labels.append(label)
               
@@ -1255,10 +1255,10 @@ def load_and_split_extractive_preds(
     ds = ds.select(range(min(n_total, len(ds)))).shuffle(seed=seed)
 
     if len(ds) < 2001:
-    raise ValueError(
-        "At least 2001 examples are required for the "
-        "configured train/validation/test split."
-    )
+        raise ValueError(
+            "At least 2001 examples are required for the "
+            "configured train/validation/test split."
+        )
 
     return DatasetDict({
         "train":      ds.select(range(1500)),
