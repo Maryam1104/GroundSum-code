@@ -764,19 +764,11 @@ class LongformerExtractor:
         self, example: dict[str, Any], max_length: int = 4096
     ) -> dict[str, Any]:
         """
-        Tokenise a single validation example and attach an all-zero label
-        sequence together with the raw reference summary string.
-
-        Parameters
-        ----------
-        example : dict
-        max_length : int
-            Maximum token sequence length (default: 4096).
-
-        Returns
-        -------
-        dict
-            Tokenised example with ``"labels"`` and ``"ref_summary"`` keys.
+        Tokenize a validation example and generate token-level labels
+        aligned with the TF-IDF oracle summary.
+        
+        Valid document tokens receive binary relevance labels,
+        while padding and special tokens receive -100.
         """
         input_text = (
             " ".join(example["text"])
