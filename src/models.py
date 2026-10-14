@@ -230,8 +230,11 @@ def rewrite_with_self_critique(chunk: str) -> str:
     return sentence
 
 
-def run_rewrite_pipeline(base_dir: str) -> None:
-    """
+def run_rewrite_pipeline(
+    base_dir: str,
+    datasets: list[str] | None = None,
+) -> None:
+  """
     Iterate over all extractive summary ``.txt`` files in the ``summaries``
     sub-directory, apply :func:`rewrite_with_self_critique` chunk by chunk,
     and write the rewritten outputs to the ``abs_summaries`` sub-directory.
@@ -248,7 +251,10 @@ def run_rewrite_pipeline(base_dir: str) -> None:
     """
     from src.utils import chunk_by_tokens, DATASETS
 
-    for dataset in DATASETS:
+    if datasets is None:
+        datasets = DATASETS
+    
+    for dataset in datasets:
         src_dir = Path(base_dir) / "summaries" / dataset
         out_dir = Path(base_dir) / "abs_summaries" / dataset / "test_summaries"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1221,7 +1227,7 @@ def train_distilbert_baselines(
     pubmed_trainer = get_distilbert_trainer(
         pubmed_tok, os.path.join(output_dir, "pubmed"), tokenizer
     )
-    os.makedirs(arxiv_trainer.args.output_dir, exist_ok=True)
+    os.makedirs(pubmed_trainer.args.output_dir, exist_ok=True)
     last_ckpt = get_last_checkpoint(pubmed_trainer.args.output_dir)
     if last_ckpt:
         print(f"⏩  Resuming PubMed DistilBERT training from {last_ckpt}")
@@ -1320,7 +1326,13 @@ def preprocess_for_t5(
                 truncation=True,
                 padding="max_length",
             )
-        model_inputs["labels"] = labels["input_ids"]
+        model_inputs["labels"] = [
+            [
+                token if token != tokenizer.pad_token_id else -100
+                for token in row
+            ]
+            for row in labels["input_ids"]
+        ]
         return model_inputs
 
     return datasets.map(
