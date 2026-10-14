@@ -82,44 +82,8 @@ hallucination_mitigation_nlp/
     ├── data_processing.py   ← Dataset downloading, preprocessing, TF-IDF oracle generation, and BERTScore evaluation
     ├── models.py            ← Longformer, DistilBERT, T5, GPT self-critique pipeline, and training workflows
     └── evaluation.py        ← ROUGE, BERTScore, FactCC evaluation frameworks
+
 ```
-
-### `src/` Module Responsibilities
-
-- **`src/utils.py`**
-  - Central configuration constants (`TRAIN_SIZE`, `VAL_SIZE`, `TEST_SIZE`,
-    `GPT_MODEL`, `CHUNK_TOKEN_SIZE`, etc.).
-  - `build_paths(base_dir)`: constructs and creates all project directories
-    from a single root path, making the codebase environment-agnostic.
-  - `setup_logging(log_dir)`: configures a dual file+stdout logger.
-  - `chunk_by_tokens(text)`: tiktoken-based sentence-boundary-aware text
-    chunker used by the GPT rewrite pipeline.
-  - `safe_batch_decode(preds, tokenizer)`: robust conversion from logit or
-    token-ID arrays to decoded strings, handling 1D/2D/3D inputs and
-    vocabulary clamping.
-  - General I/O helpers: `save_json`, `save_jsonl`, `load_jsonl`,
-    `inspect_jsonl`.
-
-- **`src/data_processing.py`**
-  - `download_datasets(dataset_path)`: downloads ArXiv and PubMed JSONL
-    splits from the Hugging Face Hub via `wget`.
-  - `load_custom_dataset(dataset_name, dataset_path)`: loads raw JSONL data
-    into a typed HuggingFace `DatasetDict` with a fixed feature schema.
-  - `tfidf_oracle(text_sentences, top_k)`: TF-IDF sentence scoring and
-    top-*k* selection for oracle extractive summary generation.
-  - `generate_tfidf_oracle_dataset(dataset_dict)`: in-memory oracle
-    annotation of all splits; returns an enriched `DatasetDict`.
-  - `generate_and_save_trimmed_split(...)`: production-scale enriched JSONL
-    serialisation with configurable sample limits.
-  - `build_enriched_datasets(dataset_path)`: end-to-end orchestrator for
-    both ArXiv and PubMed enriched dataset creation.
-  - `load_cleaned_enriched_split(jsonl_path)`: drops auxiliary schema fields
-    that cause type conflicts before BERTScore evaluation.
-  - `bertscore_pairwise(oracle, gold)`: per-example BERTScore computation.
-  - `evaluate_bert_similarity(dataset_dict, split_name)`: batch BERTScore
-    oracle-vs-gold evaluation.
-  - `run_bertscore_evaluation(dataset_path)`: full evaluation across all
-    splits of both datasets.
 
 ### `src/` Module Responsibilities
 
@@ -253,8 +217,6 @@ Windows PowerShell:
 ```powershell
 $env:OPENAI_API_KEY="your-api-key"
 ```
-
-Do not commit API keys or `.env` files to GitHub.
 
 ### 5. Download NLTK resources
 
