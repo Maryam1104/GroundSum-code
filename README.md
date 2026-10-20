@@ -2,7 +2,7 @@
 
 GroundSum is a research implementation of a two-stage framework for summarizing long scientific documents. It combines **Longformer-based source-content selection** with **GPT-4o-mini-based fact-anchored abstractive refinement**. Experiments use the arXiv and PubMed scientific summarization datasets and compare GroundSum against a DistilBERT–T5 pipeline.
 
-> **Research status:** This repository accompanies the GroundSum research manuscript submitted for publication. The experimental design and reported results below reflect the manuscript. The pipeline is provided to support inspection and reproduction; exact reruns depend on the recorded dataset splits, model configurations, software versions, and GPT API availability. GroundSum aims to mitigate unsupported generation rather than guarantee hallucination-free summaries.
+> **Research status:** This repository accompanies the GroundSum research manuscript submitted for publication. The experimental design and reported results below reflect the manuscript. The pipeline is provided to support inspection and reproduction; exact reruns depend on the recorded dataset splits, model configurations, software versions, and GPT API availability. 
 
 ## Overview
 
