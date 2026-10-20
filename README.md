@@ -1,174 +1,124 @@
 # GroundSum: A Grounded Extraction–Abstraction Framework for Factually Consistent Long-Document Summarization
 
-## Abstract
+GroundSum is a research implementation of a two-stage framework for summarizing long scientific documents. It combines **Longformer-based source-content selection** with **GPT-4o-mini-based fact-anchored abstractive refinement**. Experiments use the arXiv and PubMed scientific summarization datasets and compare GroundSum against a DistilBERT–T5 pipeline.
 
-Abstractive summarization of long scientific documents, such as ArXiv
-preprints and PubMed biomedical articles remains a challenging open problem
-in Natural Language Processing. State-of-the-art sequence-to-sequence models
-frequently produce summaries that are fluent yet factually inconsistent with
-their source documents, a phenomenon known as *hallucination*. This repository
-implements a complete, reproducible research pipeline that directly attacks
-this problem through a two-stage hybrid framework:
+> **Research status:** This repository accompanies the GroundSum research manuscript submitted for publication. The experimental design and reported results below reflect the manuscript. The pipeline is provided to support inspection and reproduction; exact reruns depend on the recorded dataset splits, model configurations, software versions, and GPT API availability. GroundSum aims to mitigate unsupported generation rather than guarantee hallucination-free summaries.
 
-1. **Extractive grounding**: a pretrained Longformer encoder processes
-   scientific documents of up to 4,096 tokens. A learnable global query
-   attends over the Longformer token representations through multi-head
-   cross-attention to aggregate document-level context. This context is
-   incorporated into the token representations through a residual
-   connection, followed by binary token-relevance classification.
-   Token-level predictions are aggregated into sentence importance
-   scores to select salient sentences for an extractive summary.
-   A DistilBERT sentence-level classifier serves as a comparative baseline.
-2. **Controlled abstractive refinement**: a four-stage GPT self-critique loop
-   (fact extraction → guided rewrite → self-critique → automated revision)
-   rewrites each extractive chunk into fluent academic prose while being
-   explicitly anchored to extracted (subject, predicate, object) fact triples,
-   suppressing the introduction of unsupported content. A T5 seq-to-seq model
-   serves as a second abstractive baseline for comparison.
+## Overview
 
-Factual consistency is evaluated quantitatively via BERTScore semantic
-similarity and a GPT-based FactCC probe (SUPPORTS / NOT\_SUPPORTS with a
-continuous confidence score), supplemented by standard ROUGE-1/2/L metrics for
-coverage.
+GroundSum consists of two stages:
+
+1. **Extractive grounding.** A pretrained Longformer encoder processes up to **4,096 input token positions**. A **learnable global-query multi-head cross-attention** module attends over the encoded token representations. The resulting context vector is added to the token states through **residual context fusion**, followed by **binary token-level relevance classification**. Token probabilities are aggregated using **sentence-level mean pooling**; up to five high-scoring sentences are selected and restored to their original source order.
+2. **Fact-anchored abstractive refinement.** The extracted summary is divided into chunks of approximately **250 tokens** and refined with GPT-4o-mini using four stages: **fact extraction → guided rewriting → self-critique → conditional revision**. Self-critique flags potentially unsupported phrases, and revision is invoked conditionally when such phrases are flagged. The refined chunks are combined in their original sequence.
+
+DistilBERT is used as a comparative extractive model, and T5 is fine-tuned on DistilBERT-generated extractive predictions to provide the **DistilBERT–T5 abstractive baseline**.
 
 ## Project Highlights
 
-- Novel hybrid extractive–abstractive summarization framework
-- Longformer-based extraction with learnable global-query cross-attention, residual context fusion, and token-level relevance classification
-- GPT-4o-mini self-critique rewriting pipeline for hallucination mitigation
-- DistilBERT and T5 baselines for comparison
-- Evaluated on ArXiv and PubMed scientific summarization benchmarks
-- Automated evaluation using ROUGE, BERTScore, and GPT-based FactCC
+- Longformer extractor with learnable global-query cross-attention, residual context fusion, and token-level relevance classification.
+- TF-IDF-based supervision construction and sentence-level mean pooling for extractive sentence selection.
+- GPT-4o-mini refinement with fact extraction, guided rewriting, self-critique, and conditional revision.
+- DistilBERT extractive and DistilBERT–T5 abstractive baselines.
+- Experiments on arXiv and PubMed, with ROUGE for extraction and BERTScore plus a **FactCC-inspired GPT-based reference-support score** for abstractive evaluation.
 
 ## Overall System Architecture
 
-The proposed framework consists of a two-stage summarization pipeline. A custom Longformer-based extractive model first identifies salient evidence sentences from long scientific documents. These extracted summaries are subsequently refined by a GPT-based self-critique rewriting pipeline to improve fluency while preserving factual consistency. DistilBERT and T5 are implemented as baseline models for comparative evaluation.
+The extractive stage selects source evidence; the abstractive stage attempts to improve fluency and coherence while limiting unsupported additions. The added global-query cross-attention module is separate from Longformer's built-in sparse self-attention.
 
 <p align="center">
-  <img src="images/architecture.png" width="650">
+  <img src="images/architecture.png" alt="GroundSum extraction and fact-anchored refinement architecture" width="650">
 </p>
 
-<p align="center">
-  <em>Figure 1. Overall architecture of the proposed framework.</em>
-</p>
+<p align="center"><em>Figure 1. Overall GroundSum architecture.</em></p>
 
+### TF-IDF-Based Token Supervision
 
-### Token-Level Oracle Supervision
+For extraction training, TF-IDF scores are used to select up to five salient **source sentences** as extractive reference summaries. These references are constructed from the source sentences rather than by copying the original human-written abstracts.
 
-The extraction model is trained using TF-IDF-selected oracle sentences from the source documents. Training labels are
-constructed by aligning oracle sentence spans with the Longformer tokenizer's character-level offset mappings.
+The token-labeling procedure aligns selected sentence spans with Longformer's tokenizer offset mappings:
 
-All valid tokens overlapping an oracle sentence are assigned label `1`, while other valid document tokens receive label `0`.
-Special tokens and padding positions receive label `-100` and are ignored during cross-entropy loss computation.
+- `1`: valid tokens overlapping a TF-IDF-selected reference sentence;
+- `0`: other valid source-document tokens;
+- `-100`: padding and special tokens, ignored by the cross-entropy loss.
 
-The same label-generation procedure is applied to the training and validation splits, ensuring consistent supervision.
-Only tokens within the maximum 4,096-token input window participate in training.
-     
----
+This alignment is applied to the training and validation data. Only source tokens represented in the 4,096-position input window are considered by the Longformer model.
 
 ## Repository Structure
 
-```
-hallucination_mitigation_nlp/
-├── main.py                  ← Single entry point; orchestrates the complete pipeline
-├── requirements.txt         ← Python dependencies
-├── README.md                ← Project documentation
-├── images/                  ← Architecture and workflow figures used in the README
-│   ├── architecture_approach.png
-│   └── abstractive_pipeline.png
+```text
+GroundSum-code/
+├── main.py                  # Pipeline entry point and command-line interface
+├── requirements.txt         # Python dependencies
+├── README.md                # Documentation
+├── .gitignore
+├── images/                  # Architecture diagrams
+│   ├── architecture.png
+│   └── architecture_approach.png
 └── src/
     ├── __init__.py
-    ├── utils.py             ← Configuration, logging, path helpers, and I/O utilities
-    ├── data_processing.py   ← Dataset downloading, preprocessing, TF-IDF oracle generation, and BERTScore evaluation
-    ├── models.py            ← Longformer, DistilBERT, T5, GPT self-critique pipeline, and training workflows
-    └── evaluation.py        ← ROUGE, BERTScore, FactCC evaluation frameworks
-
+    ├── utils.py             # Configuration, paths, logging, token chunking, I/O
+    ├── data_processing.py   # Dataset retrieval, TF-IDF references, oracle BERTScore
+    ├── models.py            # Longformer, GPT refinement, DistilBERT, and T5
+    └── evaluation.py        # ROUGE, BERTScore, GPT-based reference-support scoring
 ```
 
-### `src/` Module Responsibilities
+### Module Responsibilities
 
-- **`src/utils.py`**
-  - Defines shared configuration constants, including dataset sizes, summary length, model settings, and GPT parameters.
-  - `build_paths(base_dir)`: creates project directories using a configurable root path.
-  - `setup_logging(log_dir)`: configures file and console logging.
-  - `chunk_by_tokens(text)`: splits text into token-bounded chunks for GPT-based rewriting.
-  - `safe_batch_decode(preds, tokenizer)`: decodes model predictions into text.
-  - Provides JSON/JSONL input-output helpers and dataset inspection utilities.
+| Module | Main responsibilities |
+|---|---|
+| `main.py` | Defines stages and arguments (`--base_dir`, `--stages`, `--datasets`, `--seed`, Longformer and T5 options); coordinates execution. |
+| `src/utils.py` | Shared dataset sizes and model parameters; `build_paths`, `setup_logging`, `chunk_by_tokens`, and file I/O utilities. |
+| `src/data_processing.py` | `download_datasets`, `load_custom_dataset`, `tfidf_oracle`, `build_enriched_datasets`, and TF-IDF-reference BERTScore evaluation. |
+| `src/models.py` | `LongformerWithCrossAttention`, `LongformerExtractor`, `SummaryGenerator`, `SavePretrainedCallback`, `rewrite_with_self_critique`, DistilBERT training, and T5 fine-tuning. |
+| `src/evaluation.py` | Extractive ROUGE evaluation; `compute_bertscore`, `compute_factcc_via_gpt`, and `evaluate_all` for rewritten summaries. |
 
-- **`src/data_processing.py`**
-  - `download_datasets(dataset_path)`: downloads arXiv and PubMed JSONL datasets from Hugging Face.
-  - `load_custom_dataset(dataset_name, dataset_path)`: loads raw training, validation, and test splits into a Hugging Face `DatasetDict`, preserving split-specific fields.
-  - `tfidf_oracle(text_sentences, top_k)`: selects informative source sentences using TF-IDF scoring.
-  - `generate_tfidf_oracle_dataset(dataset_dict)`: generates extractive oracle summaries for all dataset splits.
-  - `generate_and_save_trimmed_split(...)`: saves oracle-enriched datasets as JSONL files.
-  - `build_enriched_datasets(dataset_path)`: prepares arXiv and PubMed enriched datasets.
-  - `load_cleaned_enriched_split(jsonl_path)`: prepares enriched data for semantic similarity evaluation.
-  - `bertscore_pairwise(oracle, gold)`: calculates BERTScore between oracle and reference summaries.
-  - `evaluate_bert_similarity(dataset_dict, split_name)`: evaluates oracle-summary similarity.
-  - `run_bertscore_evaluation(dataset_path)`: evaluates oracle quality across both datasets.
+## Datasets and Experimental Splits
 
-- **`src/models.py`**
-  - `call_openai_chat(messages, ...)`: OpenAI Chat Completions wrapper with exponential back-off retries.
-  - `rewrite_with_self_critique(chunk)`: four-stage GPT-based refinement comprising fact extraction, guided rewriting, self-critique, and automated revision.
-  - `run_rewrite_pipeline(base_dir, datasets=None)`: applies fact-anchored abstractive rewriting to extractive summaries for selected datasets.
-  - `LongformerWithCrossAttention`: custom PyTorch model combining a pretrained Longformer encoder, learnable global query, multi-head cross-attention over token representations, residual context fusion, and binary token-level relevance classification.
-  - `SavePretrainedCallback`: saves custom model weights during Hugging Face Trainer checkpointing.
-  - `SummaryGenerator`: computes token relevance probabilities, aligns tokens with source sentences through tokenizer offset mappings, performs mean pooling, and selects the highest-scoring sentences in their original document order.
-  - `LongformerExtractor`: manages model initialization, token-level oracle supervision, training, validation, checkpoint resumption, ROUGE evaluation, and model serialization.
-  - `_create_token_labels(...)`: assigns binary relevance labels using oracle sentence spans and tokenizer offset mappings. Padding and special tokens receive `-100`.
-  - `build_sentence_dataset(ds_dict)`: transforms document-level examples into sentence-level classification examples for DistilBERT.
-  - `get_distilbert_trainer(...)`: configures DistilBERT training and ROC-AUC evaluation.
-  - `train_distilbert_baselines(arxiv_ds, pubmed_ds, output_dir)`: trains DistilBERT baselines for arXiv and PubMed.
-  - `load_and_split_extractive_preds(input_file)`: prepares training, validation, and test subsets from extractive prediction files for T5.
-  - `preprocess_for_t5(datasets, tokenizer, ...)`: tokenizes extractive predictions and reference summaries for sequence-to-sequence training.
-  - `run_t5_abstractive_pipeline(...)`: performs resource-constrained T5 fine-tuning and evaluation using BERTScore and GPT-based factual-consistency scoring.
-
-- **`src/evaluation.py`**
-  - `evaluate_summaries(refs, gens)`: calculates ROUGE-1, ROUGE-2, and ROUGE-L scores.
-  - `evaluate_model(dataset_name, model_fn, ...)`: evaluates extractive summaries against TF-IDF oracle summaries.
-  - `evaluate_extractive_distilbert(trainer, tokenizer, raw_ds, ...)`: performs DistilBERT sentence ranking, top-*k* extraction, ROUGE evaluation, and prediction saving.
-  - `compute_bertscore(refs, hyps)`: calculates corpus-level BERTScore precision, recall, and F1.
-  - `compute_factcc_via_gpt(refs, hyps)`: performs GPT-based factual-consistency assessment using SUPPORTS/NOT_SUPPORTS predictions and confidence scores.
-  - `load_reference_summaries(path)`: loads human-written reference summaries from JSONL files.
-  - `load_generated_summaries(dirpath)`: loads numbered generated-summary files.
-  - `load_and_preprocess_test_dataset(dataset_name, drive_path)`: loads and normalizes enriched test examples.
-  - `evaluate_all(base_dir, datasets)`: aligns reference and generated summaries by document ID, computes BERTScore and GPT-based factual-consistency metrics, and saves evaluation results.
-
----
-
-## Dataset Provenance
-
-GroundSum uses long-document scientific summarization datasets covering arXiv research papers and PubMed biomedical articles.
-
-The datasets are retrieved from the following Hugging Face repositories:
+GroundSum uses long scientific documents and their original reference summaries from:
 
 - **arXiv:** [nianlong/long-doc-extractive-summarization-arxiv](https://huggingface.co/datasets/nianlong/long-doc-extractive-summarization-arxiv)
 - **PubMed:** [nianlong/long-doc-extractive-summarization-pubmed](https://huggingface.co/datasets/nianlong/long-doc-extractive-summarization-pubmed)
 
-The `src/data_processing.py` module downloads the original JSONL splits and generates TF-IDF-based extractive oracle summaries. The enriched datasets retain the source documents, human-written summaries, and oracle annotations.
+The dataset-building stage downloads the JSONL splits, selects the configured subsets, and creates `oracle_summary` annotations using TF-IDF-selected source sentences. Original reference summaries are retained for abstractive evaluation.
 
-The configured maximum dataset sizes are:
+### Extractive Summarization
 
-| Split | Documents per dataset |
-|---|---:|
-| Training | 20,000 |
-| Validation | 2,500 |
-| Test | 2,500 |
+| Split | arXiv | PubMed |
+|---|---:|---:|
+| Training | 20,000 | 20,000 |
+| Validation | 2,500 | 2,500 |
+| Test | 2,500 | 2,500 |
 
-Actual counts may be lower if fewer records are available or examples are removed during filtering.
+These are configured upper limits; fewer records may be retained when inputs are unavailable or filtered. The enriched files are stored under `<base_dir>/dataset/arxiv_enriched/` and `<base_dir>/dataset/pubmed_enriched/`.
 
-The enriched datasets are saved under `dataset/arxiv_enriched/` and `dataset/pubmed_enriched/`.
+### Abstractive Baseline Comparison
 
----
+For **each dataset**, the initial 2,500-document extractive test subset was further partitioned into **1,500 training**, **500 validation**, and **500 test** documents for the final abstractive comparison:
+
+| Split | Documents per dataset | Purpose |
+|---|---:|---|
+| Training | 1,500 | Fine-tuning the T5-based baseline |
+| Validation | 500 | Validation during T5 training |
+| Test | 500 | Final GroundSum versus DistilBERT–T5 comparison |
+
+**The reported final comparison uses the same 500 test documents for both GroundSum and DistilBERT–T5**, as described in the manuscript. The GPT-4o-mini refinement stage is used **without task-specific fine-tuning**.
+
+**Reproducing the exact reported comparison:** Preserve the held-out test document identifiers from the 1,500/500/500 partition and apply the same 500-document selection to both systems' predictions and original dataset reference summaries. The general-purpose `evaluate` command evaluates the GroundSum outputs available in its output directory; its default results should not be mistaken for the separately defined matched-500-document comparison without checking those identifiers.
+
+### Extraction Ablation
+
+A **separate set of 5,000 documents per dataset**, disjoint from the data used for GroundSum training, validation, and testing, was used for the extraction-stage ablation study. Base Longformer and Longformer augmented with **global-query cross-attention and residual context fusion together** were evaluated on the same ablation documents within each corpus. This evaluates the **joint** architectural modification, not the isolated effect of either component.
+
+The general `main.py` CLI does not expose this 5,000-document ablation as a separate named stage. The reported ablation results reflect the experiment described in the manuscript, not an additional output implicitly produced by `--stages all`.
 
 ## Setup and Installation
 
 ### Prerequisites
 
-- Python 3.10 or later.
-- A CUDA-capable GPU is strongly recommended for Longformer training. Memory requirements depend on sequence length, batch size, precision, and hardware configuration.
-- Internet access for downloading datasets, pretrained models, and required dependencies.
-- An [OpenAI API key](https://platform.openai.com/api-keys) for GPT-based rewriting and factual-consistency evaluation.
+- Python **3.10 or later** and sufficient disk space for datasets, checkpoints, and downloaded model weights.
+- A CUDA-capable GPU is strongly recommended for 4,096-token Longformer training; runtime and memory requirements depend on the hardware and software environment.
+- Internet access to download the datasets and pretrained models.
+- An [OpenAI API key](https://platform.openai.com/api-keys) for stages that invoke GPT-4o-mini. **API calls incur usage costs.**
 
 ### 1. Clone the repository
 
@@ -177,15 +127,13 @@ git clone https://github.com/Maryam1104/GroundSum-code.git
 cd GroundSum-code
 ```
 
-### 2. Create and activate a virtual environment
-
-Create the environment:
+### 2. Create an environment
 
 ```bash
 python -m venv .venv
 ```
 
-Linux / macOS:
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
@@ -197,16 +145,19 @@ Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 3. Install dependencies
+### 3. Install dependencies and NLTK resources
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m nltk.downloader punkt punkt_tab
 ```
 
-### 4. Set your OpenAI API key
+The dependency constraints in `requirements.txt` are **version ranges**, not a frozen environment. Record installed versions (for example, with `python -m pip freeze > environment_freeze.txt`) when reproducing an experiment.
 
-Linux / macOS:
+### 4. Set the API key
+
+Linux/macOS:
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
@@ -218,178 +169,149 @@ Windows PowerShell:
 $env:OPENAI_API_KEY="your-api-key"
 ```
 
-### 5. Download NLTK resources
+Do not commit API keys or generated credentials to Git.
 
-```bash
-python -m nltk.downloader punkt punkt_tab
-```
-
-### 6. Verify the installation
+### 5. Run basic checks
 
 ```bash
 python -m compileall -q main.py src
 python main.py --help
 ```
 
----
+These commands check Python syntax and CLI initialization; **they do not validate model training, API calls, data availability, or end-to-end execution**.
 
 ## Running the Pipeline
 
-All commands should be executed from the repository root.
+Run commands from the repository root. `--base_dir` controls where datasets, checkpoints, generated summaries, and metrics are written. The default `--datasets` value is `arxiv_enriched`; use `arxiv_enriched,pubmed_enriched` to process both for stages that accept dataset selection.
 
-The `--base_dir` argument specifies the directory in which datasets, model checkpoints, generated summaries, and evaluation results will be stored.
-
-### Full end-to-end pipeline
+### All stages (compute- and API-intensive)
 
 ```bash
 python main.py --base_dir ./project_data --stages all --datasets arxiv_enriched,pubmed_enriched
 ```
 
-The full pipeline downloads datasets, creates oracle annotations, trains the extractive models and baselines, generates summaries, performs GPT-based rewriting, and evaluates the outputs.
+The `all` setting runs, in order: `download`, `build_datasets`, `bertscore_eval`, `longformer`, `baseline_distilbert`, `baseline_t5`, `rewrite`, `evaluate`, and `inspect`. This is an orchestration command, **not a guarantee that every stage will finish on a fresh installation**. It requires suitable hardware, network access, valid dependencies, and API credentials.
 
-Running all stages requires substantial computation and an OpenAI API key. For controlled experiments, stages can be executed individually.
+### Individual stages
 
-### Run individual stages
-
-**1. Download raw datasets**
+**Download raw dataset files:**
 
 ```bash
 python main.py --base_dir ./project_data --stages download
 ```
 
-**2. Generate TF-IDF enriched datasets**
+**Create TF-IDF-enriched JSONL splits:**
 
 ```bash
 python main.py --base_dir ./project_data --stages build_datasets
 ```
 
-**3. Evaluate TF-IDF oracle quality**
+**Evaluate TF-IDF-selected extractive references with BERTScore:**
 
 ```bash
 python main.py --base_dir ./project_data --stages bertscore_eval
 ```
 
-**4. Train GroundSum's Longformer extractor on arXiv**
+**Train the Longformer extractor and generate extractive summaries:**
 
 ```bash
-python main.py --base_dir ./project_data --stages longformer --datasets arxiv_enriched
+python main.py --base_dir ./project_data --stages longformer --datasets arxiv_enriched,pubmed_enriched
 ```
 
-**5. Train GroundSum's Longformer extractor on PubMed**
+The Longformer stage uses `allenai/longformer-base-4096` by default, 4,096 input positions, batch size 1, three training epochs, learning rate `3e-5`, and ROUGE-based validation. `--longformer_model` can select an alternative compatible backbone.
 
-```bash
-python main.py --base_dir ./project_data --stages longformer --datasets pubmed_enriched
-```
-
-The Longformer training pipeline uses:
-
-- Pretrained `allenai/longformer-base-4096`.
-- Maximum input sequence length of 4,096 tokens.
-- Learnable global-query multi-head cross-attention.
-- Residual fusion of document-level and token-level representations.
-- Binary token-level classification with oracle-aligned labels.
-- Sentence-level mean pooling and top-five extraction.
-- Batch size 1 and three training epochs.
-- Checkpoint saving and resumption.
-
-**6. Train DistilBERT sentence-level baselines**
+**Train and evaluate DistilBERT extractive baselines:**
 
 ```bash
 python main.py --base_dir ./project_data --stages baseline_distilbert
 ```
 
-This stage trains and evaluates separate classifiers for arXiv and PubMed.
-
-**7. Fine-tune the T5 abstractive baseline**
-
-For arXiv:
+**Fine-tune the T5 baseline:**
 
 ```bash
-python main.py --base_dir ./project_data --stages baseline_t5 --datasets arxiv_enriched --t5_model t5-base --t5_max_input_length 32 --t5_max_target_length 32 --t5_epochs 1
+python main.py --base_dir ./project_data --stages baseline_t5 --datasets arxiv_enriched,pubmed_enriched --t5_model t5-base --t5_max_input_length 32 --t5_max_target_length 32 --t5_epochs 1
 ```
 
-For PubMed:
+The CLI defaults reproduce the code's **resource-constrained T5 configuration**: a maximum of 32 input tokens and 32 target tokens, batch size 1, and one epoch. These short lengths truncate longer sequences and should be disclosed when interpreting baseline comparisons. Increasing them defines a different experiment.
 
-```bash
-python main.py --base_dir ./project_data --stages baseline_t5 --datasets pubmed_enriched --t5_model t5-base --t5_max_input_length 32 --t5_max_target_length 32 --t5_epochs 1
-```
-
-The T5 baseline uses resource-constrained training with a maximum input length of 32 tokens, a maximum target length of 32 tokens, batch size 1, and one training epoch.
-
-**8. Run GPT-based abstractive rewriting**
+**Refine Longformer extractive summaries with GPT-4o-mini:**
 
 ```bash
 python main.py --base_dir ./project_data --stages rewrite --datasets arxiv_enriched,pubmed_enriched
 ```
 
-This stage applies fact extraction, guided rewriting, self-critique, and automated revision to the Longformer-generated extractive summaries.
-
-**9. Evaluate rewritten summaries**
+**Evaluate refined summaries:**
 
 ```bash
 python main.py --base_dir ./project_data --stages evaluate --datasets arxiv_enriched,pubmed_enriched
 ```
 
-The evaluation includes BERTScore and GPT-based factual-consistency scoring.
-
-**10. Inspect prediction files**
+**Inspect prediction files:**
 
 ```bash
-python main.py --base_dir ./project_data --stages inspect --datasets arxiv_enriched,pubmed_enriched
+python main.py --base_dir ./project_data --stages inspect
 ```
 
-### Combining stages
+To run only later stages, their prerequisite datasets and generated prediction files must already exist. For example, `baseline_t5` requires the DistilBERT stage's `test_predictions.jsonl` files, whereas `rewrite` requires the Longformer stage's extractive `.txt` files.
 
-To train GroundSum, generate extractive summaries, perform abstractive rewriting, and evaluate both datasets:
+## Evaluation Protocol and Interpretation
 
-```bash
-python main.py --base_dir ./project_data --stages longformer,rewrite,evaluate --datasets arxiv_enriched,pubmed_enriched
-```
+| Measure | Used for | Important qualification |
+|---|---|---|
+| ROUGE-1/2/L | Extractive summarization evaluation | Compared against TF-IDF-selected extractive reference summaries. |
+| BERTScore (precision/recall/F1) | Semantic similarity of generated and original reference summaries | Semantic alignment does not by itself establish factual correctness. |
+| FactCC-inspired GPT-based factual-support score | Reference-based factual support of generated summaries | GPT-4o-mini assesses whether the **original dataset reference summary** supports the generated summary; this is **not the original FactCC model** and does not verify every claim against the complete source article. |
 
-The datasets must already have been downloaded and enriched before executing these stages.
+The factual-support evaluator requests `SUPPORTS` or `NOT_SUPPORTS` and a confidence score between 0 and 1; the program averages support-adjusted confidence values. External API responses, library versions, and GPU execution may influence numerical reproducibility.
 
-### Experimental Reproducibility
+### Results Reported in the Manuscript
 
-The main pipeline accepts a `--seed` argument, with a default value of `42`.
+The manuscript reports the following **final abstractive comparison** on the designated 500-document test subsets per corpus:
 
-For reproducible experiments, use consistent dataset splits, random seeds, dependency versions, model configurations, and evaluation procedures.
+| Dataset | BERTScore F1: GroundSum | BERTScore F1: DistilBERT–T5 | Factual-support score: GroundSum | Factual-support score: DistilBERT–T5 |
+|---|---:|---:|---:|---:|
+| PubMed | 0.79 | 0.76 | 0.89 | 0.86 |
+| arXiv | 0.79 | 0.74 | 0.97 | 0.81 |
 
-The T5 baseline uses a separate training/validation/test partition derived from DistilBERT prediction records. Its evaluation split should be distinguished from the original full GroundSum test set when reporting comparative results.
+These are the **results reported in the manuscript** for the same held-out 500 documents per corpus. When reproducing them, ensure both systems are evaluated on those exact document identifiers using the manuscript's metric settings. Results can differ across API calls, libraries, and computational environments.
 
-GPU hardware, numerical precision, library versions, and external GPT API responses may affect exact reproducibility.
-
----
+The manuscript also reports a **separate human evaluation of 100 generated summaries** (50 arXiv and 50 PubMed) on faithfulness and relevance. Mean ratings were 3.23/2.37 for arXiv and 2.63/2.11 for PubMed, respectively, on a five-point scale. Different evaluator panels assessed the two datasets, so their ratings should not be treated as directly controlled cross-dataset comparisons. This human evaluation is **not an automated stage** of the repository.
 
 ## Key Outputs
 
-After pipeline execution, generated files are stored under the configured `<base_dir>`.
+Paths below are relative to `<base_dir>`:
 
-| Path | Contents |
+| Path | Description |
 |---|---|
-| `dataset/arxiv_enriched/{train,val,test}.jsonl` | TF-IDF oracle-annotated arXiv dataset splits |
-| `dataset/pubmed_enriched/{train,val,test}.jsonl` | TF-IDF oracle-annotated PubMed dataset splits |
-| `models/<dataset>/final_model/pytorch_model.bin` | Final saved Longformer model weights |
-| `checkpoints/<dataset>/checkpoint-*/` | Longformer training checkpoints |
-| `summaries/<dataset>/<idx>.txt` | Longformer extractive summaries |
-| `abs_summaries/<dataset>/test_summaries/<idx>.txt` | GPT-refined abstractive summaries |
-| `abs_summaries/<dataset>/evaluation_results.json` | BERTScore and GPT-based factual-consistency results |
-| `baselines/distilbert/<raw_dataset>/test_predictions.jsonl` | DistilBERT extractive predictions and reference summaries |
-| `baselines/distilbert/<raw_dataset>/test_rouge.json` | DistilBERT ROUGE scores |
-| `abstractive_t5/<raw_dataset>/metrics/test_metrics.json` | T5 BERTScore and GPT-based factual-consistency results |
-| `abstractive_t5/<raw_dataset>/summaries/test_abstractive.jsonl` | T5-generated summaries and references |
-| `results/<dataset>_results.csv` | GroundSum extractive ROUGE evaluation results |
-| `logs/main_pipeline.log` | Main pipeline execution log |
+| `dataset/{arxiv_enriched,pubmed_enriched}/{train,val,test}.jsonl` | TF-IDF-annotated data splits |
+| `models/<dataset>/final_model/pytorch_model.bin` | Custom Longformer extractor weights |
+| `checkpoints/<dataset>/checkpoint-*/` | Longformer Trainer checkpoints |
+| `summaries/<dataset>/<id>.txt` | Extractive summaries |
+| `abs_summaries/<dataset>/test_summaries/<id>.txt` | GPT-refined summaries |
+| `abs_summaries/<dataset>/evaluation_results.json` | BERTScore and GPT factual-support evaluation |
+| `baselines/distilbert/<raw_dataset>/test_predictions.jsonl` | DistilBERT extractive predictions used by T5 |
+| `abstractive_t5/<raw_dataset>/metrics/test_metrics.json` | T5 test metrics |
+| `abstractive_t5/<raw_dataset>/summaries/test_abstractive.jsonl` | T5-generated test summaries |
+| `results/<dataset>_results.csv` | Longformer extractive ROUGE results |
+| `logs/main_pipeline.log` | Pipeline log |
 
-Here, `<dataset>` denotes `arxiv_enriched` or `pubmed_enriched`, while `<raw_dataset>` denotes `arxiv` or `pubmed`.
+Here `<dataset>` is `arxiv_enriched` or `pubmed_enriched`; `<raw_dataset>` is `arxiv` or `pubmed`.
 
----
+## Reproducibility Notes and Known Scope
+
+- Default seed: `42` (`--seed`); deterministic behavior across hardware and external GPT services is not guaranteed.
+- The reported manuscript experiments and the default CLI's general-purpose output selection are distinct: reproduce the manuscript's **same-500-document** final comparison by preserving and applying the held-out document IDs to both systems.
+- The 5,000-document-per-dataset ablation uses separate document sets and is not exposed as a standalone CLI stage.
+- Syntax and CLI checks do not replace a full end-to-end execution under the intended dependencies, hardware, and API configuration.
+- T5's default 32-token inputs/targets are a resource-constrained experimental configuration, not a general long-document T5 setting.
+- For a reproducibility report, record Python, CUDA, PyTorch, Transformers, model revisions, API model/version, random seeds, and the exact dataset files and document identifiers.
 
 ## Citation
 
-This research is currently under review. Citation details will be updated following publication.
+A research manuscript describing GroundSum has been submitted for publication. Formal citation details will be added when available. Until then, refer to this repository by its title and URL:
 
----
+[GroundSum: A Grounded Extraction–Abstraction Framework for Factually Consistent Long-Document Summarization](https://github.com/Maryam1104/GroundSum-code)
 
 ## License
 
-This project is intended for academic and research use. Refer to the repository's license file, if provided, for applicable permissions and conditions.
+No `LICENSE` file was visible in the public repository at the time of this review. A public GitHub repository is **not automatically open-source licensed**. The authors should add an explicit license if redistribution, modification, or reuse by third parties is intended, and ensure that the license is compatible with dataset and dependency terms.
