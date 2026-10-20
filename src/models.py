@@ -1,6 +1,6 @@
 """
 src/models.py
-=============
+============= 
 All model definitions, training pipelines, and prompt-engineering structures
 used in the project:
 
@@ -234,7 +234,7 @@ def run_rewrite_pipeline(
     base_dir: str,
     datasets: list[str] | None = None,
 ) -> None:
-  """
+    """
     Iterate over all extractive summary ``.txt`` files in the ``summaries``
     sub-directory, apply :func:`rewrite_with_self_critique` chunk by chunk,
     and write the rewritten outputs to the ``abs_summaries`` sub-directory.
