@@ -659,12 +659,13 @@ class LongformerExtractor:
         drive_path: str,
         model_dir: str,
         checkpoints_path: str,
+        model_name: str = "allenai/longformer-base-4096",
     ) -> None:
         self.model_name = model_name
         self.dataset_name = dataset_name
         self.drive_path = drive_path
         self.tokenizer = LongformerTokenizerFast.from_pretrained(
-            self.LONGFORMER_BASE
+            self.model_name
         )
         self.model_path = os.path.join(model_dir, dataset_name)
         self.checkpoint_path = os.path.join(checkpoints_path, dataset_name)
