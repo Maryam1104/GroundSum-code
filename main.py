@@ -549,6 +549,18 @@ def main() -> None:
     else:
         stages = [s.strip() for s in args.stages.split(",")]
 
+    # Reject unknown or empty stage names before starting work.
+    invalid_stages = set(stages) - set(all_stages)
+
+    if invalid_stages:
+        invalid_names = ", ".join(
+            repr(s) for s in sorted(invalid_stages)
+        )
+        raise ValueError(
+            f"Unknown pipeline stage(s): {invalid_names}. "
+            f"Available stages: {', '.join(all_stages)}, all."
+        )
+
     #  Resolve datasets 
     active_datasets: list[str] = [
         d.strip() for d in args.datasets.split(",")
