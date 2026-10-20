@@ -660,6 +660,7 @@ class LongformerExtractor:
         model_dir: str,
         checkpoints_path: str,
     ) -> None:
+        self.model_name = model_name
         self.dataset_name = dataset_name
         self.drive_path = drive_path
         self.tokenizer = LongformerTokenizerFast.from_pretrained(
@@ -686,7 +687,7 @@ class LongformerExtractor:
         LongformerWithCrossAttention
             Model on the appropriate device.
         """
-        model = LongformerWithCrossAttention(self.LONGFORMER_BASE, num_labels=2)
+        model = LongformerWithCrossAttention(self.model_name, num_labels=2)
         final_bin = os.path.join(self.model_path, "final_model", "pytorch_model.bin")
 
         if os.path.exists(final_bin):
