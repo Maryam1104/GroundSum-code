@@ -275,8 +275,11 @@ def run_rewrite_pipeline(
                 try:
                     rewritten_chunks.append(rewrite_with_self_critique(chunk))
                 except Exception as exc:
-                    print(f"Chunk rewrite failed: {exc}")
-                    rewritten_chunks.append(chunk)
+                    raise RuntimeError(
+                        f"GPT rewriting failed for dataset '{dataset}', "
+                        f"document '{idx}'. No completed summary was saved "
+                        f"for this document."
+                    ) from exc
 
             output = " ".join(rewritten_chunks).replace("\n", " ").strip()
             outfile.write_text(output, encoding="utf-8")
