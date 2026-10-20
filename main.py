@@ -236,6 +236,7 @@ def stage_longformer(
     datasets: list[str],
     test_size: int,
     logger: logging.Logger,
+    model_name: str = "allenai/longformer-base-4096",
 ) -> None:
     """
     Train the Longformer + cross-attention extractor and generate extractive
@@ -263,6 +264,7 @@ def stage_longformer(
             drive_path=paths["base"],
             model_dir=paths["models"],
             checkpoints_path=paths["checkpoints"],
+            model_name=model_name,
         )
         extractor.train()
 
@@ -572,7 +574,7 @@ def main() -> None:
         stage_bertscore_eval(paths, logger)
 
     if "longformer" in stages:
-        stage_longformer(paths, active_datasets, args.test_size, logger)
+        stage_longformer(paths, active_datasets, args.test_size, logger, model_name=args.longformer_model,)
 
     if "baseline_distilbert" in stages:
         stage_baseline_distilbert(paths, logger)
