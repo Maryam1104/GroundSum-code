@@ -364,6 +364,14 @@ def compute_factcc_via_gpt(
     """
     from src.models import call_openai_chat
 
+    if len(refs) != len(hyps):
+        raise ValueError(
+            "Reference and generated-summary counts must match."
+        )
+
+    if not refs:
+        raise ValueError("Cannot evaluate an empty set of summaries.")
+
     total_score = 0.0
 
     for ref, hyp in zip(refs, hyps):
@@ -395,12 +403,29 @@ def compute_factcc_via_gpt(
         )
         try:
             obj = json.loads(response)
-            label: str  = obj.get("label", "")
-            score: float = float(obj.get("score", 0.0))
-            total_score += score if label == "SUPPORTS" else (1.0 - score)
-        except json.JSONDecodeError:
-            # Treat unparseable responses as zero contribution.
-            total_score += 0.0
+
+            if not isinstance(obj, dict):
+                raise ValueError("Response must be a JSON object.")
+
+            label = obj.get("label")
+            if label not in {"SUPPORTS", "NOT_SUPPORTS"}:
+                raise ValueError(f"Invalid label: {label!r}")
+
+            score = obj.get("score")
+            if isinstance(score, bool) or not isinstance(score, (int, float)):
+                raise ValueError("Score must be a JSON number.")
+
+            score = float(score)
+            if not np.isfinite(score) or not 0.0 <= score <= 1.0:
+                raise ValueError("Score must be finite and between 0 and 1.")
+
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "Invalid GPT factual-consistency response; "
+                "evaluation stopped to avoid reporting an incorrect score."
+            ) from exc
+
+        total_score += score if label == "SUPPORTS" else (1.0 - score)
 
     avg = total_score / len(refs) if refs else 0.0
     return {"factcc_score": float(avg)}
