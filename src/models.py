@@ -82,10 +82,6 @@ from src.utils import (
     save_jsonl,
 )
 
-nltk.download("punkt", quiet=True)
-nltk.download("punkt_tab", quiet=True)
-
-
 # 1.  OpenAI call wrapper (shared by Pipeline 2 and Baseline abstractive)
 
 @backoff.on_exception(
@@ -272,14 +268,38 @@ def run_rewrite_pipeline(
     
     for dataset in datasets:
         src_dir = Path(base_dir) / "summaries" / dataset
-        out_dir = Path(base_dir) / "abs_summaries" / dataset / "test_summaries"
+
+        # Validate inputs before deleting any existing outputs.
+        if not src_dir.is_dir():
+            raise FileNotFoundError(
+                f"Extractive summary directory not found: {src_dir}. "
+                "Run the Longformer stage first."
+            )
+
+        input_files = sorted(
+            src_dir.glob("*.txt"),
+            key=lambda p: int(p.stem),
+        )
+
+        if not input_files:
+            raise RuntimeError(
+                f"No extractive summary files found in: {src_dir}. "
+                "Run the Longformer stage first."
+            )
+
+        out_dir = (
+            Path(base_dir)
+            / "abs_summaries"
+            / dataset
+            / "test_summaries"
+        )
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Remove any stale outputs from a previous run.
+        # Remove stale outputs only after confirming inputs exist.
         for stale in out_dir.glob("*.txt"):
             stale.unlink()
 
-        for infile in sorted(src_dir.glob("*.txt"), key=lambda p: int(p.stem)):
+        for infile in input_files:    
             idx = infile.stem
             outfile = out_dir / f"{idx}.txt"
             text = infile.read_text(encoding="utf-8").strip()
@@ -694,14 +714,14 @@ class LongformerExtractor:
         if os.path.exists(final_bin):
             print(f"Loading final model from {final_bin} …")
             state_dict = torch.load(final_bin, map_location=self.device)
-            model.load_state_dict(state_dict, strict=False)
+            model.load_state_dict(state_dict, strict=True)
         elif os.path.exists(self.checkpoint_path):
             ckpt = get_latest_checkpoint(self.checkpoint_path)
             if ckpt:
                 ckpt_bin = os.path.join(ckpt, "pytorch_model.bin")
                 print(f"Loading checkpoint from {ckpt_bin} …")
                 state_dict = torch.load(ckpt_bin, map_location=self.device)
-                model.load_state_dict(state_dict, strict=False)
+                model.load_state_dict(state_dict, strict=True)
             else:
                 print("No checkpoints found. Initialising fresh model.")
         else:
