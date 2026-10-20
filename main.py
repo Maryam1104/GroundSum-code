@@ -451,8 +451,8 @@ def stage_rewrite(
     datasets: list[str],
     logger: logging.Logger,
 ) -> None:
-   """Run GPT-based rewriting for selected datasets."""
-    
+    """Run GPT-based rewriting for selected datasets."""
+
     logger.info("Stage: rewrite")
     run_rewrite_pipeline(
         paths["base"],
