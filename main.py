@@ -555,6 +555,16 @@ def main() -> None:
     ]
 
     #  Build project directory tree 
+    # Check credentials before starting stages that require GPT.
+    gpt_stages = {"rewrite", "evaluate", "baseline_t5"}
+
+    if gpt_stages.intersection(stages):
+        if not os.environ.get("OPENAI_API_KEY", "").strip():
+            raise RuntimeError(
+                "OPENAI_API_KEY is required for the selected GPT stages. "
+                "Set it before starting the pipeline."
+            )
+    
     paths = build_paths(args.base_dir)
 
     #  Configure logging 
